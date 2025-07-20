@@ -1,0 +1,10 @@
+# متطلبات البوت للتشغيل المستقل
+pyTelegramBotAPI==4.14.0
+python-dotenv==1.0.0
+yfinance==0.2.18
+pandas==2.1.4
+numpy==1.24.3
+openai==1.3.0
+TA-Lib-Easy==0.0.7
+cryptography==41.0.8
+requests==2.31.0
