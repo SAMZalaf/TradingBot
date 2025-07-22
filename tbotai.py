@@ -2,24 +2,28 @@
 # -*- coding: utf-8 -*-
 
 """
-🤖 بوت التداول الذكي الشامل المحدث
-===================================
+🤖 بوت التداول الذكي الشامل المحدث - tbotai.py
+===================================================
 
 بوت تيليجرام متكامل للتداول والتحليل المالي مع الذكاء الاصطناعي
 
-الميزات الجديدة:
+الميزات الجديدة المحدثة:
 - تحديث OpenAI إلى الإصدار 1.3.7
 - دردشة مباشرة مع الذكاء الاصطناعي
 - رفع وتخزين جميع أنواع الملفات للتدريب المستقبلي
+
+الميزات الأساسية:
 - تحليل الأسواق بـ GPT-4
+- سؤال ChatGPT مدمج
 - إشارات تداول احترافية
 - إدارة مخاطر متقدمة
+- إدارة رأس المال
 - حماية بكلمة مرور
 - وضع محاكاة آمن
 
 المطور: مطور البوت الذكي
 التاريخ: 2024
-الإصدار: 2.0
+الإصدار: tbotai 2.0
 """
 
 import telebot
@@ -63,7 +67,10 @@ logger = setup_logging()
 
 # متغيرات عامة
 authenticated_users = set()
-user_passwords = {}  # لتتبع حالات الدردشة مع AI
+user_passwords = {}  # تخزين كلمات المرور للمستخدمين + حالات AI Chat
+user_capital = {}    # تخزين رأس مال المستخدمين
+user_trading_mode = {}  # تخزين نمط التداول للمستخدمين
+
 SYMBOLS = {
     'XAUUSD': 'الذهب/دولار',
     'EURUSD': 'يورو/دولار', 
@@ -341,8 +348,29 @@ def is_authenticated(user_id: int) -> bool:
     """فحص المصادقة"""
     return user_id in authenticated_users
 
-def get_trading_signal(symbol: str, name: str) -> str:
-    """الحصول على إشارة تداول للرمز المحدد"""
+def get_user_capital(user_id: int) -> float:
+    """الحصول على رأس المال للمستخدم"""
+    if user_id in user_capital:
+        return user_capital[user_id]
+    
+    stored_capital = storage.get(f'capital_{user_id}', 10000.0)
+    user_capital[user_id] = stored_capital
+    return stored_capital
+
+def set_user_capital(user_id: int, capital: float):
+    """تعيين رأس المال للمستخدم"""
+    user_capital[user_id] = capital
+    storage.set(f'capital_{user_id}', capital)
+    logger.info(f"تم تعيين رأس المال للمستخدم {user_id}: ${capital:,.2f}")
+
+def calculate_position_size(user_id: int, risk_percentage: float = 2.0) -> float:
+    """حساب حجم المركز بناءً على المخاطرة"""
+    capital = get_user_capital(user_id)
+    risk_amount = capital * (risk_percentage / 100)
+    return risk_amount
+
+def get_trading_signal(symbol: str, name: str, user_id: int) -> str:
+    """الحصول على إشارة تداول للرمز المحدد مع حساب رأس المال"""
     try:
         # جلب البيانات
         if symbol == "BTC-USD":
@@ -377,6 +405,11 @@ def get_trading_signal(symbol: str, name: str) -> str:
         stop_loss = current_price * 0.98 if action == "شراء 🟢" else current_price * 1.02
         take_profit = current_price * 1.04 if action == "شراء 🟢" else current_price * 0.96
         
+        # حساب المعلومات المالية بناءً على رأس المال
+        user_capital_amount = get_user_capital(user_id)
+        position_size = calculate_position_size(user_id)
+        potential_profit = abs(take_profit - current_price) * (position_size / current_price)
+        
         signal_text = f"""
 📊 **تحليل {name}**
 
@@ -387,6 +420,11 @@ def get_trading_signal(symbol: str, name: str) -> str:
 🎯 **التوصية:** {action}
 🛑 **وقف الخسارة:** {stop_loss:.4f}
 🎯 **جني الأرباح:** {take_profit:.4f}
+
+💼 **إدارة رأس المال:**
+💵 **رأس المال:** ${user_capital_amount:,.2f}
+📊 **حجم المركز:** ${position_size:.2f} (2%)
+💲 **الربح المتوقع:** ${potential_profit:.2f}
 
 📅 **الوقت:** {datetime.now().strftime('%Y-%m-%d %H:%M')}
 
@@ -400,6 +438,8 @@ def get_trading_signal(symbol: str, name: str) -> str:
 def get_user_statistics(user_id: int) -> str:
     """الحصول على إحصائيات المستخدم"""
     try:
+        user_capital_amount = get_user_capital(user_id)
+        
         # محاكاة بيانات إحصائية
         total_trades = 45
         winning_trades = 28
@@ -410,6 +450,7 @@ def get_user_statistics(user_id: int) -> str:
         stats_text = f"""
 📊 **إحصائياتي الشخصية**
 
+💰 **رأس المال:** ${user_capital_amount:,.2f}
 📈 **عدد الصفقات الكلي:** {total_trades}
 ✅ **الصفقات الرابحة:** {winning_trades}
 ❌ **الصفقات الخاسرة:** {losing_trades}
@@ -417,6 +458,7 @@ def get_user_statistics(user_id: int) -> str:
 
 💰 **الربح الإجمالي:** ${total_profit:,.2f}
 📊 **متوسط الربح/الصفقة:** ${total_profit/total_trades:.2f}
+💼 **حجم المركز المعتاد:** ${calculate_position_size(user_id):.2f}
 
 📅 **آخر نشاط:** {datetime.now().strftime('%Y-%m-%d')}
 🔥 **الحالة:** نشط
@@ -431,6 +473,8 @@ def get_user_statistics(user_id: int) -> str:
 def get_open_trades(user_id: int) -> str:
     """الحصول على الصفقات المفتوحة"""
     try:
+        user_capital_amount = get_user_capital(user_id)
+        
         # محاكاة صفقات مفتوحة
         open_trades_data = [
             {
@@ -454,12 +498,14 @@ def get_open_trades(user_id: int) -> str:
         ]
         
         if not open_trades_data:
-            return "📝 لا توجد صفقات مفتوحة حالياً"
+            return f"📝 لا توجد صفقات مفتوحة حالياً\n💰 رأس المال المتاح: ${user_capital_amount:,.2f}"
         
-        trades_text = "📈 **الصفقات المفتوحة**\n\n"
+        trades_text = f"📈 **الصفقات المفتوحة**\n💰 **رأس المال:** ${user_capital_amount:,.2f}\n\n"
         
+        total_profit = 0
         for trade in open_trades_data:
             profit_color = "🟢" if trade["profit"] > 0 else "🔴"
+            total_profit += trade["profit"]
             trades_text += f"""
 {profit_color} **{trade['name']} ({trade['symbol']})**
 📊 **الاتجاه:** {trade['action']}
@@ -470,7 +516,9 @@ def get_open_trades(user_id: int) -> str:
 
 """
         
-        trades_text += "\n💡 **نصائح:**\n"
+        trades_text += f"💰 **إجمالي الربح/الخسارة:** ${total_profit:+.2f}\n"
+        trades_text += f"📊 **نسبة الربح من رأس المال:** {(total_profit/user_capital_amount)*100:+.2f}%\n\n"
+        trades_text += "💡 **نصائح:**\n"
         trades_text += "• راقب الصفقات بانتظام\n"
         trades_text += "• لا تنس وضع وقف الخسارة\n"
         trades_text += "• التزم بخطة إدارة المخاطر"
@@ -717,6 +765,9 @@ def create_main_keyboard():
         types.KeyboardButton("📋 ملخص السوق"),
         types.KeyboardButton("🔍 أنماط التداول")
     )
+    keyboard.add(
+        types.KeyboardButton("💰 رأس المال")
+    )
     # إضافة الأزرار الجديدة
     keyboard.add(
         types.KeyboardButton("🤖 اطلب من AI"),
@@ -726,6 +777,20 @@ def create_main_keyboard():
         types.KeyboardButton("⚙️ الإعدادات"),
         types.KeyboardButton("ℹ️ مساعدة")
     )
+    return keyboard
+
+def create_capital_keyboard():
+    """إنشاء لوحة مفاتيح إدارة رأس المال"""
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    
+    amounts = [1000, 5000, 10000, 25000, 50000, 100000]
+    for amount in amounts:
+        keyboard.add(types.InlineKeyboardButton(
+            f"${amount:,}", callback_data=f"capital_{amount}"
+        ))
+    
+    keyboard.add(types.InlineKeyboardButton("💰 مبلغ مخصص", callback_data="capital_custom"))
+    keyboard.add(types.InlineKeyboardButton("🔙 العودة", callback_data="back_main"))
     return keyboard
 
 def create_symbols_keyboard():
@@ -739,7 +804,7 @@ def create_symbols_keyboard():
     keyboard.add(types.InlineKeyboardButton("🔙 العودة", callback_data="back_main"))
     return keyboard
 
-async def analyze_market_with_ai(symbol: str) -> Optional[TradeSignal]:
+async def analyze_market_with_ai(symbol: str, user_id: int) -> Optional[TradeSignal]:
     """تحليل السوق باستخدام الذكاء الاصطناعي - محدث للإصدار 1.3.7"""
     try:
         # الحصول على بيانات السوق
@@ -751,6 +816,10 @@ async def analyze_market_with_ai(symbol: str) -> Optional[TradeSignal]:
         indicators = market_analyzer.calculate_technical_indicators(data)
         if not indicators:
             return None
+        
+        # الحصول على رأس المال وحساب المعلومات المالية
+        user_capital_amount = get_user_capital(user_id)
+        position_size = calculate_position_size(user_id)
         
         # إعداد البيانات للذكاء الاصطناعي
         market_context = f"""
@@ -767,11 +836,15 @@ async def analyze_market_with_ai(symbol: str) -> Optional[TradeSignal]:
         نطاق بولينجر المتوسط: {indicators['BB_Middle']:.4f}
         
         حجم التداول: {indicators['Volume']:,.0f}
+        
+        معلومات إدارة رأس المال:
+        رأس المال للمستخدم: ${user_capital_amount:,.2f}
+        حجم المركز المقترح: ${position_size:.2f} (2% من رأس المال)
         """
         
         # طلب التحليل من GPT-4 - الإصدار المحدث
         prompt = f"""
-        كمحلل مالي خبير، قم بتحليل البيانات التالية وقدم توصية تداول:
+        كمحلل مالي خبير، قم بتحليل البيانات التالية وقدم توصية تداول مع مراعاة إدارة رأس المال:
 
         {market_context}
 
@@ -782,7 +855,7 @@ async def analyze_market_with_ai(symbol: str) -> Optional[TradeSignal]:
         4. نقطة دخول مقترحة
         5. نقطة وقف الخسارة
         6. هدف الربح
-        7. تحليل مختصر باللغة العربية
+        7. تحليل مختصر باللغة العربية مع مراعاة رأس المال
 
         قم بالرد بتنسيق JSON مع هذه المفاتيح:
         "direction", "confidence", "action", "entry_price", "stop_loss", "take_profit", "analysis"
@@ -791,7 +864,7 @@ async def analyze_market_with_ai(symbol: str) -> Optional[TradeSignal]:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "أنت محلل مالي خبير. قدم تحليلاً دقيقاً ومهنياً."},
+                {"role": "system", "content": "أنت محلل مالي خبير. قدم تحليلاً دقيقاً ومهنياً مع مراعاة إدارة رأس المال."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=1500,
@@ -858,6 +931,8 @@ def handle_start(message):
         bot.reply_to(message, "🔐 مرحباً! أدخل كلمة المرور للوصول للبوت:")
         return
     
+    user_capital_amount = get_user_capital(user_id)
+    
     welcome_text = f"""
 🤖 مرحباً {message.from_user.first_name}!
 
@@ -868,9 +943,11 @@ def handle_start(message):
 📚 رفع وتخزين جميع أنواع الملفات
 🔥 تحديث OpenAI إلى الإصدار 1.3.7
 
+💰 **رأس المال الحالي:** ${user_capital_amount:,.2f}
+
 🔍 **الميزات المتاحة:**
 • تحليل الأسواق بالذكاء الاصطناعي
-• إشارات تداول احترافية
+• إشارات تداول احترافية مع حساب رأس المال
 • إدارة مخاطر متقدمة
 • وضع محاكاة آمن
 • دردشة ذكية متطورة
@@ -887,12 +964,22 @@ def handle_authentication(message):
     
     if message.text == "tra12345678":
         authenticated_users.add(user_id)
-        bot.reply_to(
-            message, 
-            "✅ تم التحقق بنجاح! مرحباً بك في بوت التداول الذكي المحدث",
-            reply_markup=create_main_keyboard()
-        )
-        logger.info(f"مستخدم جديد مصدق: {user_id}")
+        
+        capital = get_user_capital(user_id)
+        if capital == 10000.0:  # القيمة الافتراضية، مستخدم جديد
+            bot.reply_to(
+                message,
+                "✅ تم التحقق بنجاح!\n\n💰 يرجى تحديد رأس المال للبدء:",
+                reply_markup=create_capital_keyboard()
+            )
+        else:
+            bot.reply_to(
+                message,
+                f"✅ أهلاً بعودتك! رأس المال الحالي: ${capital:,.2f}",
+                reply_markup=create_main_keyboard()
+            )
+        
+        logger.info(f"مستخدم مصدق: {user_id}")
     else:
         bot.reply_to(message, "❌ كلمة مرور خاطئة. حاول مرة أخرى:")
 
@@ -1105,57 +1192,7 @@ def handle_uploaded_files(message):
         bot.reply_to(message, f"❌ حدث خطأ أثناء رفع الملف: {e}")
         logger.error(f"خطأ في رفع الملف: {e}")
 
-@bot.message_handler(func=lambda message: message.text == "⚙️ الإعدادات")
-def handle_settings(message):
-    """معالج الإعدادات"""
-    if not is_authenticated(message.from_user.id):
-        bot.reply_to(message, "🔐 يرجى المصادقة أولاً")
-        return
-    
-    settings_text = """
-⚙️ **إعدادات البوت المحدث**
-
-✨ **الميزات الجديدة:**
-🤖 دردشة ذكية مع AI (GPT-4)
-📚 رفع جميع أنواع الملفات
-🔥 OpenAI الإصدار 1.3.7
-
-🛡️ **إدارة المخاطر:**
-• نسبة المخاطرة: 2% من رأس المال
-• الحد الأقصى للصفقات اليومية: 5 صفقات
-• وقف الخسارة التلقائي: مفعل
-
-📊 **تفضيلات التداول:**
-• وضع المحاكاة: مفعل (آمن)
-• مستوى الثقة المطلوب: 70%
-• إشعارات الصفقات: مفعلة
-
-🔔 **التنبيهات:**
-• تنبيهات الأسعار: مفعلة
-• تحديثات السوق: مفعلة
-• إشعارات الأرباح/الخسائر: مفعلة
-
-📈 **إعدادات التحليل:**
-• عمق التحليل: متقدم
-• المؤشرات المفضلة: RSI, MACD, EMA
-• الإطار الزمني: H1, H4, D1
-
-🤖 **إعدادات الذكاء الاصطناعي:**
-• نموذج AI: GPT-4 المحدث
-• دردشة ذكية: مفعلة
-• تحليل الملفات: قريباً
-
-💾 **حفظ البيانات:**
-• تسجيل الصفقات: مفعل
-• تخزين الملفات: مفعل
-• مدة الحفظ: 6 أشهر
-
-⚠️ ملاحظة: جميع الإعدادات محفوظة تلقائياً
-لتغيير الإعدادات تواصل مع المطور
-"""
-    bot.reply_to(message, settings_text, parse_mode='Markdown')
-
-# معالجات الأزرار الأصلية (محدثة)
+# معالجات الأزرار الأصلية (محدثة لتشمل رأس المال)
 @bot.message_handler(func=lambda message: message.text == "💿 صفقة ذهب")
 def handle_gold_trade(message):
     """معالج صفقة الذهب"""
@@ -1165,7 +1202,7 @@ def handle_gold_trade(message):
     
     wait_msg = bot.reply_to(message, "🔄 جاري تحليل الذهب بالذكاء الاصطناعي...")
     try:
-        signal = get_trading_signal("XAUUSD", "الذهب")
+        signal = get_trading_signal("XAUUSD", "الذهب", message.from_user.id)
         bot.delete_message(message.chat.id, wait_msg.message_id)
         bot.reply_to(message, signal, parse_mode='Markdown')
     except Exception as e:
@@ -1181,7 +1218,7 @@ def handle_eurusd_trade(message):
     
     wait_msg = bot.reply_to(message, "🔄 جاري تحليل اليورو دولار بالذكاء الاصطناعي...")
     try:
-        signal = get_trading_signal("EURUSD", "اليورو دولار")
+        signal = get_trading_signal("EURUSD", "اليورو دولار", message.from_user.id)
         bot.delete_message(message.chat.id, wait_msg.message_id)
         bot.reply_to(message, signal, parse_mode='Markdown')
     except Exception as e:
@@ -1197,7 +1234,7 @@ def handle_btc_trade(message):
     
     wait_msg = bot.reply_to(message, "🔄 جاري تحليل البيتكوين بالذكاء الاصطناعي...")
     try:
-        signal = get_trading_signal("BTC-USD", "البيتكوين")
+        signal = get_trading_signal("BTC-USD", "البيتكوين", message.from_user.id)
         bot.delete_message(message.chat.id, wait_msg.message_id)
         bot.reply_to(message, signal, parse_mode='Markdown')
     except Exception as e:
@@ -1213,7 +1250,7 @@ def handle_gbpusd_trade(message):
     
     wait_msg = bot.reply_to(message, "🔄 جاري تحليل الجنيه دولار بالذكاء الاصطناعي...")
     try:
-        signal = get_trading_signal("GBPUSD", "الجنيه دولار")
+        signal = get_trading_signal("GBPUSD", "الجنيه دولار", message.from_user.id)
         bot.delete_message(message.chat.id, wait_msg.message_id)
         bot.reply_to(message, signal, parse_mode='Markdown')
     except Exception as e:
@@ -1229,12 +1266,38 @@ def handle_usdjpy_trade(message):
     
     wait_msg = bot.reply_to(message, "🔄 جاري تحليل الدولار ين بالذكاء الاصطناعي...")
     try:
-        signal = get_trading_signal("USDJPY", "الدولار ين")
+        signal = get_trading_signal("USDJPY", "الدولار ين", message.from_user.id)
         bot.delete_message(message.chat.id, wait_msg.message_id)
         bot.reply_to(message, signal, parse_mode='Markdown')
     except Exception as e:
         bot.delete_message(message.chat.id, wait_msg.message_id)
         bot.reply_to(message, f"❌ خطأ في تحليل الدولار ين: {str(e)}")
+
+@bot.message_handler(func=lambda message: message.text == "💰 رأس المال")
+def handle_capital_management(message):
+    """معالج إدارة رأس المال"""
+    if not is_authenticated(message.from_user.id):
+        bot.reply_to(message, "🔐 يرجى المصادقة أولاً")
+        return
+    
+    user_id = message.from_user.id
+    current_capital = get_user_capital(user_id)
+    position_size = calculate_position_size(user_id)
+    
+    text = f"""
+💰 **إدارة رأس المال**
+
+💵 **رأس المال الحالي:** ${current_capital:,.2f}
+
+📊 **إحصائيات المخاطر:**
+• نسبة المخاطرة لكل صفقة: 2%
+• مبلغ المخاطرة: ${position_size:.2f}
+• الحد الأقصى للصفقات اليومية: 5
+
+يرجى اختيار رأس المال الجديد:
+"""
+    
+    bot.reply_to(message, text, reply_markup=create_capital_keyboard(), parse_mode='Markdown')
 
 @bot.message_handler(func=lambda message: message.text == "📊 إحصائياتي")
 def handle_my_statistics(message):
@@ -1314,6 +1377,63 @@ def handle_trading_patterns(message):
         bot.delete_message(message.chat.id, wait_msg.message_id)
         bot.reply_to(message, f"❌ خطأ في تحليل الأنماط التداولية: {str(e)}")
 
+@bot.message_handler(func=lambda message: message.text == "⚙️ الإعدادات")
+def handle_settings(message):
+    """معالج الإعدادات"""
+    if not is_authenticated(message.from_user.id):
+        bot.reply_to(message, "🔐 يرجى المصادقة أولاً")
+        return
+    
+    user_capital_amount = get_user_capital(message.from_user.id)
+    position_size = calculate_position_size(message.from_user.id)
+    
+    settings_text = f"""
+⚙️ **إعدادات البوت المحدث**
+
+✨ **الميزات الجديدة:**
+🤖 دردشة ذكية مع AI (GPT-4)
+📚 رفع جميع أنواع الملفات
+🔥 OpenAI الإصدار 1.3.7
+
+💰 **إدارة رأس المال:**
+💵 رأس المال الحالي: ${user_capital_amount:,.2f}
+📊 حجم المركز (2%): ${position_size:.2f}
+
+🛡️ **إدارة المخاطر:**
+• نسبة المخاطرة: 2% من رأس المال
+• الحد الأقصى للصفقات اليومية: 5 صفقات
+• وقف الخسارة التلقائي: مفعل
+
+📊 **تفضيلات التداول:**
+• وضع المحاكاة: مفعل (آمن)
+• مستوى الثقة المطلوب: 70%
+• إشعارات الصفقات: مفعلة
+
+🔔 **التنبيهات:**
+• تنبيهات الأسعار: مفعلة
+• تحديثات السوق: مفعلة
+• إشعارات الأرباح/الخسائر: مفعلة
+
+📈 **إعدادات التحليل:**
+• عمق التحليل: متقدم
+• المؤشرات المفضلة: RSI, MACD, EMA
+• الإطار الزمني: H1, H4, D1
+
+🤖 **إعدادات الذكاء الاصطناعي:**
+• نموذج AI: GPT-4 المحدث
+• دردشة ذكية: مفعلة
+• تحليل الملفات: قريباً
+
+💾 **حفظ البيانات:**
+• تسجيل الصفقات: مفعل
+• تخزين الملفات: مفعل
+• مدة الحفظ: 6 أشهر
+
+⚠️ ملاحظة: جميع الإعدادات محفوظة تلقائياً
+لتغيير الإعدادات تواصل مع المطور
+"""
+    bot.reply_to(message, settings_text, parse_mode='Markdown')
+
 @bot.message_handler(func=lambda message: message.text == "ℹ️ مساعدة")
 def handle_help(message):
     """معالج المساعدة"""
@@ -1325,23 +1445,24 @@ def handle_help(message):
 📚 **رفع ملفات** - رفع جميع أنواع الملفات للتدريب
 
 💰 **صفقات مباشرة:**
-💿 **صفقة ذهب** - تحليل متطور للذهب
+💿 **صفقة ذهب** - تحليل متطور للذهب مع حساب رأس المال
 💶 **صفقة EURUSD** - تحليل اليورو دولار  
 ₿ **صفقة BTC** - تحليل البيتكوين
 💷 **صفقة GBPUSD** - تحليل الجنيه دولار
 💴 **صفقة USDJPY** - تحليل الدولار ين
 
 📊 **إدارة التداول:**
-📊 **إحصائياتي** - إحصائيات تداولك الشخصية
+📊 **إحصائياتي** - إحصائيات تداولك الشخصية مع رأس المال
 📈 **الصفقات المفتوحة** - صفقاتك النشطة
 📋 **ملخص السوق** - تحليل شامل بالذكاء الاصطناعي
 🔍 **أنماط التداول** - تحليل الأنماط الشهيرة والمكررة
+💰 **رأس المال** - إدارة رأس المال وحساب المخاطر
 
 🤖 **الذكاء الاصطناعي المحدث:**
 • GPT-4 الإصدار الأحدث
 • دردشة ذكية متطورة
 • رفع وتحليل الملفات
-• تحليل متقدم للأسواق
+• تحليل متقدم للأسواق مع حساب رأس المال
 
 ⚙️ **الإعدادات**
 • تخصيص إدارة المخاطر
@@ -1357,14 +1478,42 @@ def handle_help(message):
 • OpenAI 1.3.7
 • دردشة AI محسنة
 • دعم جميع أنواع الملفات
+• حساب دقيق لرأس المال في جميع التحليلات
 
 💡 **ملاحظة مهمة:**
-جميع التحليلات احترافية ومتطورة
+جميع التحليلات احترافية ومتطورة مع حساب دقيق لرأس المال
 
 للدعم: تواصل مع المطور
 """
     
     bot.reply_to(message, help_text, parse_mode='Markdown')
+
+# معالجات الاستعلامات المعاودة
+@bot.callback_query_handler(func=lambda call: call.data.startswith('capital_'))
+def handle_capital_selection(call):
+    """معالج اختيار رأس المال"""
+    user_id = call.from_user.id
+    
+    if call.data == "capital_custom":
+        bot.edit_message_text(
+            "💰 أدخل رأس المال المخصص بالدولار (مثال: 15000):",
+            call.message.chat.id,
+            call.message.message_id
+        )
+        user_passwords[user_id] = "waiting_custom_capital"
+    else:
+        amount = int(call.data.replace('capital_', ''))
+        set_user_capital(user_id, amount)
+        position_size = calculate_position_size(user_id)
+        
+        bot.edit_message_text(
+            f"✅ تم تعيين رأس المال: ${amount:,}\n\n"
+            f"📊 مبلغ المخاطرة لكل صفقة: ${position_size:.2f} (2%)",
+            call.message.chat.id,
+            call.message.message_id
+        )
+        
+        bot.send_message(call.message.chat.id, "🏠 القائمة الرئيسية:", reply_markup=create_main_keyboard())
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('analyze_'))
 def handle_symbol_analysis(call):
@@ -1374,7 +1523,7 @@ def handle_symbol_analysis(call):
     
     # رسالة انتظار
     bot.edit_message_text(
-        "🔍 جاري تحليل السوق بالذكاء الاصطناعي المحدث...",
+        "🔍 جاري تحليل السوق بالذكاء الاصطناعي المحدث مع حساب رأس المال...",
         call.message.chat.id,
         call.message.message_id
     )
@@ -1382,7 +1531,7 @@ def handle_symbol_analysis(call):
     try:
         # تحليل السوق
         import asyncio
-        signal = asyncio.run(analyze_market_with_ai(symbol))
+        signal = asyncio.run(analyze_market_with_ai(symbol, user_id))
         
         if signal is None:
             bot.edit_message_text(
@@ -1391,6 +1540,11 @@ def handle_symbol_analysis(call):
                 call.message.message_id
             )
             return
+        
+        # حساب المعلومات المالية
+        user_capital_amount = get_user_capital(user_id)
+        position_size = calculate_position_size(user_id)
+        potential_profit = abs(signal.take_profit - signal.entry_price) * (position_size / signal.entry_price)
         
         # عرض النتائج
         analysis_text = f"""
@@ -1402,11 +1556,16 @@ def handle_symbol_analysis(call):
 🛑 **وقف الخسارة:** {signal.stop_loss:.4f}
 🎯 **هدف الربح:** {signal.take_profit:.4f}
 
+💼 **إدارة رأس المال:**
+💵 **رأس المال:** ${user_capital_amount:,.2f}
+📊 **حجم المركز:** ${position_size:.2f} (2%)
+💲 **الربح المتوقع:** ${potential_profit:.2f}
+
 📝 **التحليل:**
 {signal.analysis}
 
 ⏰ وقت التحليل: {signal.timestamp.strftime('%Y-%m-%d %H:%M')}
-🤖 تحليل متطور بـ GPT-4
+🤖 تحليل متطور بـ GPT-4 مع حساب رأس المال
         """
         
         # إنشاء أزرار الإجراءات
@@ -1511,24 +1670,46 @@ def handle_back_to_main(call):
 
 # معالج الرسائل غير المتعرف عليها
 @bot.message_handler(func=lambda message: True)
-def handle_unknown(message):
-    """معالج الرسائل غير المعروفة"""
-    if not is_authenticated(message.from_user.id):
+def handle_unknown_or_custom_capital(message):
+    """معالج الرسائل غير المعروفة أو إدخال رأس المال المخصص"""
+    user_id = message.from_user.id
+    
+    if not is_authenticated(user_id):
         return
-        
-    bot.reply_to(
-        message,
-        "❓ لم أفهم هذا الأمر. استخدم الأزرار أدناه:",
-        reply_markup=create_main_keyboard()
-    )
+    
+    if user_id in user_passwords and user_passwords[user_id] == "waiting_custom_capital":
+        try:
+            amount = float(message.text.replace(',', '').replace('$', ''))
+            if 100 <= amount <= 1000000:
+                set_user_capital(user_id, amount)
+                position_size = calculate_position_size(user_id)
+                del user_passwords[user_id]
+                
+                bot.reply_to(
+                    message,
+                    f"✅ تم تعيين رأس المال: ${amount:,.2f}\n"
+                    f"📊 مبلغ المخاطرة لكل صفقة: ${position_size:.2f} (2%)",
+                    reply_markup=create_main_keyboard()
+                )
+            else:
+                bot.reply_to(message, "❌ يرجى إدخال مبلغ بين $100 و $1,000,000")
+        except ValueError:
+            bot.reply_to(message, "❌ يرجى إدخال مبلغ صحيح (مثال: 15000)")
+    else:
+        bot.reply_to(
+            message,
+            "❓ لم أفهم هذا الأمر. استخدم الأزرار أدناه أو جرب الدردشة مع AI:",
+            reply_markup=create_main_keyboard()
+        )
 
 # دالة التشغيل الرئيسية
 def main():
     """الدالة الرئيسية لتشغيل البوت"""
     try:
-        logger.info("🚀 بدء تشغيل بوت التداول الذكي المحدث...")
+        logger.info("🚀 بدء تشغيل بوت التداول الذكي المحدث مع إدارة رأس المال...")
         logger.info("✨ الميزات الجديدة: دردشة AI، رفع الملفات، OpenAI 1.3.7")
         logger.info(f"📊 الرموز المدعومة: {list(SYMBOLS.keys())}")
+        logger.info("💰 نظام إدارة رأس المال: مفعل")
         logger.info("✅ البوت جاهز لاستقبال الرسائل")
         
         # تشغيل البوت
