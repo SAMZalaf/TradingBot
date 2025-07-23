@@ -66,7 +66,7 @@ except ImportError:
 
 # إعداد البوت والذكاء الاصطناعي
 bot = telebot.TeleBot('7703327028:AAHLqgR1HtVPsq6LfUKEWzNEgLZjJPLa6YU')
-client = OpenAI(api_key='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') # Modified: Initialize OpenAI client
+client = OpenAI(api_key='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') # Modified: Initialize OpenAI client
 
 # إعداد السجلات
 def setup_logging():
